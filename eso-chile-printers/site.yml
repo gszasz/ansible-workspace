@@ -1,0 +1,130 @@
+# Playbook to setup localhost for the printers at ESO Chile
+#
+# Copyright (C) 2022, 2023  Gabriel Szász <gabriel.szasz1@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+# details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program.  If not, see <https://www.gnu.org/licenses/>.
+---
+- hosts: localhost
+  tasks:
+    - name: Set download directory
+      ansible.builtin.set_fact:
+        download_dir: "{{ ansible_env.HOME }}/Downloads"
+
+    - name: Check if CUPS is running
+      become: yes
+      ansible.builtin.systemd:
+        name: cups
+        enabled: yes
+        state: started
+
+    - name: Install foomatic packages
+      tags: dependencies
+      become: yes
+      block:
+        - name: Install Foomatic packages in Fedora
+          ansible.builtin.dnf:
+            pkg:
+              - foomatic
+              - foomatic-db
+              - foomatic-db-ppds
+            state: latest
+          when: ansible_distribution == 'Fedora'
+
+        - name: Install Foomatic packages in Ubuntu
+          ansible.builtin.apt:
+            pkg:
+              - foomatic-db
+              - foomatic-db-compressed-ppds
+              - foomatic-db-engine
+              - foomatic-filters
+              - foomatic-filters-beh
+            state: latest
+          when: ansible_distribution == 'Ubuntu'
+
+    - name: Print CQue driver download info
+      ansible.builtin.pause:
+        prompt: |
+          Make sure the most recent Canon driver was downloaded to {{ download_dir }}
+
+          Download URL:
+          https://www.canon-europe.com/support/products/imagerunner/imagerunner-advance-c5535i-iii.html?type=drivers&language=en&os=linux%20(64-bit)
+
+          Press ENTER to continue
+
+    - name: Install latest Canon CQue driver
+      tags: install_driver
+      become: yes
+      block:
+        - name: Install latest Canon CQue driver for Fedora found in the {{ download_dir }}
+          ansible.builtin.dnf:
+            name: "{{ lookup('fileglob', glob_pattern, wantlist=true) | community.general.version_sort | last }}"
+            disable_gpg_check: true
+          vars:
+            glob_pattern: "{{ download_dir }}/cque-en-*.rpm"
+          when: ansible_distribution == 'Fedora'
+
+        - name: Install latest Canon CQue driver for Ubuntu found in the {{ download_dir }}
+          ansible.builtin.apt:
+            deb: "{{ lookup('fileglob', glob_pattern, wantlist=true) | community.general.version_sort | last }}"
+          vars:
+            glob_pattern: "{{ download_dir }}/cque-en-*.deb"
+          when: ansible_distribution == 'Ubuntu'
+
+    - name: Configure ESO print queues
+      tags: config_queues
+      vars:
+        eso_print_queues:
+          - name: Paranal_print_queue
+            url: lpd://pluniflow1.ads.eso.org/Paranal_print_queue
+            location: ESO Paranal
+          - name: Santiago_print_queue
+            url: lpd://scuniflow1.ads.eso.org/Santiago_print_queue
+            location: ESO Santiago
+          - name: LaSilla_print_queue
+            url: lpd://lsuniflow1.ads.eso.org/Silla_print_queue
+            location: ESO La Silla
+        default_print_queue: Santiago_print_queue
+      block:
+        - name: List Canon C5535 III PXL printer info
+          ansible.builtin.shell: lpinfo -m | grep -i -e c5535 | grep -e III | grep -e PXL
+          register: lpinfo
+
+        - name: Set printer model
+          ansible.builtin.set_fact:
+            printer_model: "{{ lpinfo.stdout | regex_replace('(.*\\.ppd\\.gz).*', '\\1') }}"
+
+        - name: Setup ESO print queues
+          become: yes
+          ansible.builtin.shell: >-
+            lpadmin -p {{ item.name }} -m {{ printer_model }}
+            -E -v {{ item.url }} {{ lp_options }}
+            -L "{{ item.location }}"
+            -D "{{ item.location }} Uniflow Printers queue, Canon PXL Driver"
+          vars:
+            lp_options: >-
+              -o OptSPD=True
+              -o OptFIN=InFinH1
+              -o OptCTRY=True
+              -o media=iso_a4_210x297mm
+              -o printer-is-shared=false
+              -o PageSize=A4
+              -o Media=A4
+              -o booklet=off
+          loop: "{{ eso_print_queues }}"
+
+        - name: Set default print queue
+          become: yes
+          ansible.builtin.shell: lpadmin -d {{ default_print_queue }}
+          when: default_print_queue is defined

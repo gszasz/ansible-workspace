@@ -1,0 +1,404 @@
+# Playbook for the ESO 1.52 telescope UNIX controller setup
+#
+# Copyright (C) 2022  Gabriel Szász <gabriel.szasz1@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+# details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program.  If not, see <https://www.gnu.org/licenses/>.
+---
+- hosts: all
+  vars:
+    user_src_dir: "{{ ansible_env.HOME }}/src"
+    anydesk_password: "La Silla"
+  tasks:
+    - name: "Set sudo without password for {{ ansible_user }}"
+      tags: sudo
+      become: yes
+      block:
+        - name: Ensure sudo group exists
+          group:
+            name: sudo
+            state: present
+
+        - name: Allow sudo group to have passwordless sudo
+          lineinfile:
+            dest: /etc/sudoers
+            state: present
+            regexp: '^%sudo'
+            line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+            validate: visudo -cf %s
+
+        - name: "Add {{ ansible_user }} to sudo group"
+          user:
+            name: "{{ ansible_user }}"
+            groups: sudo
+            append: yes
+
+    - name: Install Chrome and Chrome Remote Desktop
+      tags: chrome
+      become: yes
+      vars:
+        google_keyring_gpg: /etc/apt/trusted.gpg.d/google-keyring.gpg
+      block:
+        - name: Download Google Signing Key
+          get_url:
+            url: https://dl.google.com/linux/linux_signing_key.pub
+            dest: /tmp/
+          register: google_signing_key_download
+
+        - name: "Dearmor downloaded Google Signing Key into {{ google_keyring_gpg }}"
+          shell: "gpg --dearmor -o {{ google_keyring_gpg }} < {{ google_signing_key_download.dest }}"
+          args:
+            creates: "{{ google_keyring_gpg }}"
+
+        - name: Purge downloaded Google Signing Key
+          file:
+            path: "{{ google_signing_key_download.dest }}"
+            state: absent
+
+        - name: Add Google Chrome repository
+          apt_repository:
+            filename: google-chrome
+            repo:  "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main"
+            state: present
+
+        - name: Add Chrome Remote Desktop repository
+          apt_repository:
+            filename: chrome-remote-desktop
+            repo:  "deb [arch=amd64] http://dl.google.com/linux/chrome-remote-desktop/deb/ stable main"
+            state: present
+
+        - name: Install Google Chrome and Chrome Remote Desktop
+          apt:
+            pkg:
+              - google-chrome-stable
+              - chrome-remote-desktop
+            update_cache: yes
+            state: latest
+
+        - name: "Purge {{ google_keyring_gpg }} that is no longer needed"
+          # Both Google Chrome and Chrome Remote Desktop packages are adding
+          # Google key to /etc/trusted.gpg.d; nevertheless, the presence of the
+          # Google's GPG is required for the initial installation
+          # place.
+          file:
+            path: "{{ google_keyring_gpg }}"
+            state: absent
+
+        - name: Ensure chrome-remote-desktop group exists
+          group:
+            name: chrome-remote-desktop
+            state: present
+
+        - name: "Ensure {{ ansible_user }} is member of the chrome-remote-desktop group"
+          user:
+            name: "{{ ansible_user }}"
+            groups: chrome-remote-desktop
+            append: yes
+
+        - name: Print follow-up message
+          run_once: yes
+          delegate_to: localhost
+          debug:
+            msg: "Follow the instructions at https://remotedesktop.google.com/headless/ to configure your system via SSH."
+
+        - name: Fix black screen issue
+          # It's probable I will need to set following variables in
+          # /etc/environment to make it work in the recent Ubuntu [1]:
+          #
+          #     CHROME_REMOTE_DESKTOP_DEFAULT_DESKTOP_SIZES=1920x1080
+          #     CHROME_REMOTE_DESKTOP_USE_XORG=1
+          #     CHROME_REMOTE_DESKTOP_LOG_FILE=/tmp/crd.log
+          #
+          # References:
+          # [1] https://superuser.com/questions/778028/configuring-chrome-remote-desktop-with-ubuntu-gnome-14-04/850359#850359
+          block:
+            - name: The first step of the fix
+              debug:
+                msg: "Here comes the implementation of the  patch fixing the problem"
+
+
+    - name: Install AnyDesk
+      tags: anydesk
+      become: yes
+      vars:
+        anydesk_gpg: /etc/apt/trusted.gpg.d/anydesk.gpg
+      block:
+        - name: Download AnyDesk Signing Key
+          get_url:
+            url:  https://keys.anydesk.com/repos/DEB-GPG-KEY
+            dest: /tmp/
+          register: anydesk_signing_key_download
+
+        - name: "Dearmor downloaded AnyDesk Signing Key into {{ anydesk_gpg }}"
+          shell: "gpg --dearmor -o {{ anydesk_gpg }} < {{ anydesk_signing_key_download.dest }}"
+          args:
+            creates: "{{ anydesk_gpg }}"
+
+        - name: Purge downloaded AnyDesk Key
+          file:
+            path: "{{ anydesk_signing_key_download.dest }}"
+            state: absent
+
+        - name: Add AnyDesk repository
+          apt_repository:
+            filename: anydesk-stable
+            repo:  "deb http://deb.anydesk.com/ all main"
+            state: present
+
+        - name: Install AnyDesk
+          apt:
+            name: anydesk
+            update_cache: yes
+            state: latest
+
+        - name: Ensure AnyDesk Service is enabled and running
+          service:
+             name: anydesk
+             enabled: yes
+             state: running
+
+        - name: Set password for unattended access
+          shell: "echo \"{{ anydesk_password }}\" | sudo anydesk --set-password"
+
+    - name: "Ensure directory {{ user_src_dir }} exists"
+      file:
+        path: "{{ user_src_dir }}"
+        state: directory
+
+    - name: "Clone platospec GitHub repository to {{ user_src_dir }}"
+      git:
+        repo: https://github.com/jan-fuchs-fuky/platospec.git
+        dest: "{{ user_src_dir }}/platospec"
+        clone: yes
+        update: yes
+
+    - name: Install data directories
+      tags: data-dirs
+      become: yes
+      block:
+        - name: Create platospec group
+          group:
+            name: platospec
+            state: present
+
+        - name: "Add {{ ansible_user }}  to the platospec group"
+          user:
+            name: "{{ ansible_user }}"
+            groups: platospec
+            append: yes
+
+        - name: Create /data directory structure with proper permissions
+          file:
+            name: "{{ item }}"
+            owner: "{{ ansible_user }}"
+            group: platospec
+            mode: g+ws
+            state: directory
+          loop:
+            - /data/pucheros_guiding
+            - /data/pucheros_guiding/INCOMING
+            - /data/pucheros_sci
+
+    - name: Install platospec programs to /opt and set permissions
+      tags: platospec-programs
+      become: yes
+      vars:
+        platospec_programs:
+          - e152_watchdog_gui
+          - indi_autoguider
+          - pucheros_expose_gui
+          - telescope_control_gui
+      block:
+        - name: Copy all platospec programs to /opt
+          copy:
+            src: "{{ user_src_dir }}/platospec/{{ item }}"
+            dest: /opt/
+            directory_mode: yes
+            remote_src: yes
+          loop: "{{ platospec_programs }}"
+
+        - name: Set proper permissions for the log directories
+          file:
+            path: "/opt/{{ item }}/log"
+            owner: "{{ ansible_user }}"
+            group: platospec
+            mode: g+ws
+            state: directory
+          loop: "{{ platospec_programs }}"
+
+    - name: Install latest INDI Code Library
+      tags: libindi
+      vars:
+        indi_build_dir: "{{ user_src_dir }}/indi_build"
+      block:
+        - name: Install INDI Code Library dependencies
+          # The libdc1394-22-dev package requested by the docs is already
+          # obsolete and was replaced by libdc1394-dev
+          become: yes
+          apt:
+            pkg:
+            - build-essential
+            - cdbs
+            - cmake
+            - dkms
+            - fxload
+            - git
+            - libboost-regex-dev
+            - libcfitsio-dev
+            - libcurl4-gnutls-dev
+            - libdc1394-dev
+            - libev-dev
+            - libfftw3-dev
+            - libfftw3-dev
+            - libftdi-dev
+            - libgphoto2-dev
+            - libgps-dev
+            - libgsl-dev
+            - libgsl0-dev
+            - libjpeg-dev
+            - libkrb5-dev
+            - libnova-dev
+            - libnova-dev
+            - libraw-dev
+            - librtlsdr-dev
+            - libtheora-dev
+            - libtiff-dev
+            - libusb-1.0-0-dev
+            - libusb-dev
+            - swig
+            - zlib1g-dev
+            state: latest
+
+        - name: Get latest INDI Code Library
+          run_once: yes
+          delegate_to: localhost
+          github_release:
+            user: indilib
+            repo: indi
+            action: latest_release
+          register: indi_latest
+
+        - name: Download and unarchive the INDI Code Library
+          unarchive:
+            src: https://github.com/indilib/indi/archive/refs/tags/{{ indi_latest['tag'] }}.tar.gz
+            dest: "{{ user_src_dir }}"
+            remote_src: yes
+          register: indi_download
+
+        - name: "List all unarchived INDI Code Library source directories present in the {{ user_src_dir }}"
+          find:
+            paths: "{{ user_src_dir }}"
+            patterns: 'indi-*'
+            file_type: directory
+          register: indi_src_dir_list
+
+        - name: "Set source directory to the latest unarchived INDI Code Library sources in the {{ user_src_dir }}"
+          set_fact:
+            indi_src_dir: "{{ indi_src_dir_list.files | map(attribute='path') | community.general.version_sort | last }}"
+
+        - name: "Ensure {{ indi_build_dir }} exists"
+          file:
+            path: "{{ indi_build_dir }}"
+            state: directory
+
+        - name: "Ensure {{ indi_build_dir }} is empty"
+          file:
+            path: "{{ indi_build_dir }}/*"
+            state: absent
+
+        - name: "Compile INDI Code Library from the {{ indi_src_dir }} sources"
+          shell: |
+            cmake -DCMAKE_INSTALL_PREFIX=/usr/local . ../{{ indi_src_dir | basename }}
+            make
+          args:
+            chdir: "{{ indi_build_dir }}"
+          register: indi_compile
+
+        - name: Install compiled INDI Code Library to /usr/local
+          become: yes
+          shell: make install
+          args:
+            chdir: "{{ indi_build_dir }}"
+          register: indi_install
+
+    - name: Install latest pyindi-client
+      tags: pyindi-client
+      vars:
+        indi_build_dir: "{{ user_src_dir }}/indi_build"
+      block:
+        - name: Install pyindi-client dependencies
+          # The newest Ubuntu runs Python 3.10 so libpython3.9-minimal and
+          # libpython3.9-stdlib packages required by documentation are obsolete
+          # and one needs to install corresponding 3.10 packages instead.
+          # Documentation also do not mention python3-distutils and
+          # python3-setuptools which are also required.
+          apt:
+            pkg:
+              - libpython3.10-minimal
+              - libpython3.10-stdlib
+              - python3-astroplan
+              - python3-astropy
+              - python3-astroquery
+              - python3-dbus
+              - python3-distutils
+              - python3-humanize
+              - python3-matplotlib
+              - python3-numpy
+              - python3-opencv
+              - python3-pexpect
+              - python3-photutils
+              - python3-pyqt5
+              - python3-requests
+              - python3-setuptools
+              - python3-sdnotify
+              - python3-skimage
+              - python3-socketio
+              - python3-zeroc-ice
+              - rsync
+              - saods9
+              - xpa-tools
+
+        - name: Get latest pyindi-client
+          run_once: yes
+          delegate_to: localhost
+          github_release:
+            user: indilib
+            repo: pyindi-client
+            action: latest_release
+          register: pyindi_client_latest
+
+        - name: Download and unarchive the pyindi-client
+          unarchive:
+            src: https://github.com/indilib/pyindi-client/archive/refs/tags/{{ pyindi_client_latest['tag'] }}.tar.gz
+            dest: "{{ user_src_dir }}"
+            remote_src: yes
+          register: pyindi_client_download
+
+        - name: "List all unarchived pyindi-client source directories present in the {{ user_src_dir }}"
+          find:
+            paths: "{{ user_src_dir }}"
+            patterns: 'pyindi-client-*'
+            file_type: directory
+          register: pyindi_client_src_dir_list
+
+        - name: "Set source directory to the latest unarchived INDI Code Library sources in the {{ user_src_dir }}"
+          set_fact:
+            pyindi_client_src_dir: "{{ pyindi_client_src_dir_list.files | map(attribute='path') | community.general.version_sort | last }}"
+
+        - name: Run pyindi-client setup script
+          become: yes
+          shell: python3 setup.py install
+          args:
+            chdir: "{{ pyindi_client_src_dir }}"
+          register: pyindi_client_install
