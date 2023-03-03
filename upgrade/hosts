@@ -1,0 +1,7 @@
+[desktops]
+localhost       ansible_connection=local
+thor
+
+[servers]
+phoenix
+orion

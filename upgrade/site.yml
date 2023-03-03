@@ -1,0 +1,421 @@
+# Playbook performing upgrade of all installed packages
+#
+# Copyright (C) 2022, 2023  Gabriel Szász <gabriel.szasz1@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+# details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program.  If not, see <https://www.gnu.org/licenses/>.
+---
+- hosts: servers
+  become: yes
+  tasks:
+    - name: Upgrade repo packages
+      tags: repo_packages
+      block:
+        - name: Upgrade of all packages from the repositories
+          ansible.builtin.package:
+            name: "*"
+            state: latest
+
+- hosts: desktops
+  become: yes
+  tasks:
+    - name: Upgrade repo packages
+      tags: repo_packages
+      block:
+        - name: Upgrade all packages from the repositories
+          ansible.builtin.dnf:
+            name: "*"
+            state: latest
+          register: dnf_upgrade
+
+        - name: DEBUG dnf_upgrade
+          ansible.builtin.debug:
+            var: dnf_upgrade
+
+        - name: Set list of upgraded packages
+          ansible.builtin.set_fact:
+            upgraded_packages: "{{ dnf_upgrade.results | select('match', '^Installed:') | map('regex_replace','^Installed: (.+)$','\\1') | list }}"
+
+        - name: DEBUG upgraded_packages
+          ansible.builtin.debug:
+            var: upgraded_packages
+
+        - name: Update user's copy of emacsclient launcher if emacs-common package was upgraded
+          when: upgraded_packages | select('match', 'emacs-common') | list | count > 0
+          block:
+            - name: Find emacsclient launcher
+              ansible.builtin.find:
+                paths: /usr/share/emacs/
+                file_type: file
+                recurse: yes
+                patterns: 'emacsclient.desktop'
+              register: find_emacsclient_launcher
+
+            - name: Copy emacsclient launcher to user's home directory
+              ansible.builtin.copy:
+                src: "{{ find_emacsclient_launcher.files[0].path }}"
+                dest: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
+                remote_src: yes
+
+        - name: Fix installed Skype if Discord was upgraded
+          ansible.builtin.shell: rpm -Uvh --force $(dnf repoquery -q --latest 1 --location skypeforlinux)
+          when: upgraded_packages | select('match', 'discord') | list | count > 0
+
+    - name: Upgrade Zoom
+      tags: zoom
+      block:
+        - name: Install Zoom RPM key
+          ansible.builtin.rpm_key:
+            state: present
+            key: https://zoom.us/linux/download/pubkey?version=5-12-6
+
+        - name: Upgrade Zoom from the vendor's RPM
+          ansible.builtin.dnf:
+            name: https://zoom.us/client/latest/zoom_x86_64.rpm
+
+    # - name: Upgrade Bitwarden
+    #   tags: bitwarden
+    #   block:
+    #     - name: Check version of the installed Bitwarden
+    #       block:
+    #         - name: List installed Bitwarden package
+    #           ansible.builtin.dnf:
+    #             list: bitwarden
+    #           register: list_bitwarden_package
+
+    #         - name: Set version of the installed Bitwarden package
+    #           ansible.builtin.set_fact:
+    #             bitwarden_version: "{{ list_bitwarden_package.results[0].version if list_bitwarden_package.results else '1970.1.1' }}"
+
+    #     - name: Check the latest Bitwarden version available on GitHub
+    #       run_once: yes
+    #       delegate_to: localhost
+    #       block:
+    #         - name: Get list of Bitwarden releases from GitHub
+    #           ansible.builtin.uri:
+    #             url: "https://api.github.com/repos/bitwarden/clients/releases"
+    #             body_format: json
+    #           register: bitwarden_releases
+
+    #         - name: Set latest Bitwarden version
+    #           ansible.builtin.set_fact:
+    #             bitwarden_latest_version: "{{ bitwarden_releases.json | json_query(desktop_release_query) | community.general.version_sort | last | regex_replace('^desktop-v?(.*)$', '\\1')  }}"
+    #           vars:
+    #             desktop_release_query: "[?contains(tag_name,'desktop') && prerelease==`false` && draft==`false`].tag_name"
+
+    #     - name: Perform upgrade of Bitwarden
+    #       when: bitwarden_latest_version is version(bitwarden_version, '>')
+    #       block:
+    #         - name: Download latest Bitwarden RPM
+    #           ansible.builtin.get_url:
+    #             url: "https://vault.bitwarden.com/download/?app=desktop&platform=linux&variant=rpm"
+    #             dest: /tmp/
+    #           register: bitwarden_download
+
+    #         - name: Install Bitwarden from the downloaded RPM
+    #           ansible.builtin.dnf:
+    #             name: "{{ bitwarden_download['dest'] }}"
+    #             disable_gpg_check: yes
+    #           when: bitwarden_download.changed
+    #           register: bitwarden_install
+
+    #         - name: Purge downloaded RPM
+    #           ansible.builtin.file:
+    #             path: "{{ bitwarden_download['dest'] }}"
+    #             state: absent
+    #           when: bitwarden_download.changed
+
+    - name: Upgrade UHK Agent
+      tags: uhk-agent
+      block:
+        - name: Check version of the installed UHK Agent
+          block:
+            - name: Get installed UHK Agent version from AppImage
+              ansible.builtin.shell: "ls /opt/uhk-agent/UHK.Agent* | head -n 1 | sed 's/.*UHK\\.Agent-\\(.*\\)-linux-x86_64\\.AppImage/\\1/'"
+              changed_when: false
+              register: uhk_agent_version_check
+
+            - name: Set UHK Agent version
+              ansible.builtin.set_fact:
+                uhk_agent_version: "{{ uhk_agent_version_check.stdout if not uhk_agent_version_check.stderr else '0.0.0' }}"
+
+        - name: Check the latest UHK Agent version available on GitHub
+          run_once: yes
+          delegate_to: localhost
+          block:
+            - name: Get latest UHK Agent release tag
+              community.general.github_release:
+                user: UltimateHackingKeyboard
+                repo: agent
+                action: latest_release
+              register: uhk_agent_latest
+
+            - name: Set latest UHK Agent version
+              ansible.builtin.set_fact:
+                uhk_agent_latest_version: "{{ uhk_agent_latest['tag'] | regex_replace('^v','') }}"
+
+        - name: Perform upgrade of UHK Agent
+          when: uhk_agent_latest_version is version(uhk_agent_version, '>')
+          block:
+            - name: Ensures that /opt/uhk-agent directory exists
+              ansible.builtin.file:
+                path: /opt/uhk-agent
+                state: directory
+
+            - name: Ensures that /opt/uhk-agent is empty
+              ansible.builtin.file:
+                path: "/opt/uhk-agent/*"
+                state: absent
+
+            - name: Download UHK Agent AppImage
+              ansible.builtin.get_url:
+                url: "https://github.com/UltimateHackingKeyboard/agent/releases/download/{{ uhk_agent_latest['tag'] }}/UHK.Agent-{{ uhk_agent_latest['tag'] | regex_replace('^v','') }}-linux-x86_64.AppImage"
+                dest: /opt/uhk-agent
+              register: uhk_agent_download
+
+            - name: Make the UHK Agent AppImage executable
+              ansible.builtin.file:
+                path: "{{ uhk_agent_download.dest }}"
+                mode: +x
+              when: uhk_agent_download.changed
+
+            - name: Create a symbolic link for UHK Agent executable
+              ansible.builtin.file:
+                src: "{{ uhk_agent_download.dest }}"
+                dest: /usr/local/bin/uhk-agent
+                state: link
+              when: uhk_agent_download.changed
+
+            - name: Extract UHK Agent's launcher and usr/share files from the AppImage and fix their permissions
+              ansible.builtin.shell: |
+                ./{{ uhk_agent_download.dest | basename }} --appimage-extract uhk-agent.desktop
+                ./{{ uhk_agent_download.dest | basename }} --appimage-extract usr/share
+                find squashfs-root -type d -exec chmod 755 {} \;
+                find squashfs-root -type f -exec chmod 644 {} \;
+              args:
+                executable: /bin/bash
+                chdir: "{{ uhk_agent_download.dest | dirname }}"
+              when: uhk_agent_download.changed
+
+
+            - name: Set executable path in the extracted UHK Agent launcher
+              ansible.builtin.lineinfile:
+                path: "{{ uhk_agent_download.dest | dirname }}/squashfs-root/uhk-agent.desktop"
+                regexp: '(Exec=)AppRun(.*)'
+                line: '\1uhk-agent\2'
+                backrefs: yes
+              when: uhk_agent_download.changed
+
+            - name: Copy extracted UHK Agent's files to /usr/local
+              ansible.builtin.copy:
+                src: "{{ uhk_agent_download.dest | dirname }}/squashfs-root/{{ item.src }}"
+                dest: "/usr/local/{{ item.dest }}"
+                remote_src: yes
+                directory_mode: yes
+              loop:
+                - { src: uhk-agent.desktop, dest: share/applications/uhk-agent.desktop }
+                - { src: usr/share/, dest: share/ }
+              when: uhk_agent_download.changed
+
+            - name: Delete the squashfs-root directory
+              ansible.builtin.file:
+                path: "{{ uhk_agent_download.dest | dirname }}/squashfs-root"
+                state: absent
+              when: uhk_agent_download.changed
+
+    - name: Upgrade OpenShift Client
+      tags: oc
+      block:
+        - name: Check version of the installed OpenShift Client
+          block:
+            - name: Get OpenShift Client version from the CLI
+              ansible.builtin.shell: "oc version | head -n 1 | rev | cut -d ' ' -f1 | rev"
+              changed_when: false
+              register: oc_version_check
+
+            - name: Set OpenShift Client version
+              ansible.builtin.set_fact:
+                oc_version: "{{ oc_version_check.stdout if not oc_version_check.stderr else '0.0.0-0' }}"
+
+        - name: Check the latest OpenShift Client version available on GitHub
+          run_once: yes
+          delegate_to: localhost
+          block:
+            - name: Get latest OKD release tag
+              community.general.github_release:
+                user: okd-project
+                repo: okd
+                action: latest_release
+              register: okd_latest
+
+            - name: Set latest OpenShift Client version
+              ansible.builtin.set_fact:
+                oc_latest_version: "{{ okd_latest['tag'] }}"
+
+        - name: Perform upgrade of OpenShift Client
+          when: oc_latest_version is version(oc_version, '>')
+          block:
+            - name: Ensures that /opt/oc directory exists
+              ansible.builtin.file:
+                path: /opt/oc
+                state: directory
+
+            - name: Ensures that /opt/oc is empty
+              ansible.builtin.file:
+                path: "/opt/oc/*"
+                state: absent
+
+            - name: Download latest OpenShift Client
+              ansible.builtin.unarchive:
+                src: "https://github.com/okd-project/okd/releases/download/{{ okd_latest['tag'] }}/openshift-client-linux-{{ okd_latest['tag'] }}.tar.gz"
+                dest: /opt/oc
+                remote_src: yes
+              register: oc_download
+
+            - name: Create a symbolic link for OpenShift Client executables
+              ansible.builtin.file:
+                src: "{{ oc_download.dest }}/{{ item }}"
+                dest: "/usr/local/bin/{{ item }}"
+                state: link
+              loop:
+                - oc
+                - kubectl
+              when: oc_download.changed
+
+    - name: Upgrade MeshCommander
+      tags: meshcommander
+      block:
+        - name: Ensures that /opt/meshcommander directory exists
+          ansible.builtin.file:
+            path: /opt/meshcommander
+            state: directory
+
+        - name: (Re)install MeshCommander via npm
+          community.general.npm:
+            name: meshcommander
+            path: /opt/meshcommander
+            state: latest
+          register: meshcommander_install
+
+        - name: Create launcher script
+          ansible.builtin.copy:
+            dest: /usr/local/bin/meshcommander
+            content: |
+              #!/bin/bash
+              # SPDX-FileCopyrightText: 2022 Gabriel Szász <gabriel.szasz1@gmail.com>
+              # SPDX-License-Identifier: GPL-3.0-or-later
+
+              cd /opt/meshcommander/node_modules
+              sudo node meshcommander
+            mode: a+x
+
+    - name: Upgrade Zotero
+      tags: zotero
+      block:
+        - name: Check version of the installed Zotero
+          block:
+            - name: Set Zotero default version
+              ansible.builtin.set_fact:
+                zotero_version: "0.0.0"
+
+            - name: Check if Zotero's application.ini file exists
+              ansible.builtin.stat:
+                path: /opt/zotero/application.ini
+              register: zotero_application_ini_file
+
+            - name: Read Zotero's application.ini file contents
+              ansible.builtin.slurp:
+                src: /opt/zotero/application.ini
+              when: zotero_application_ini_file.stat.exists
+              register: zotero_application_ini
+
+            - name: Set Zotero version
+              ansible.builtin.set_fact:
+                zotero_version: "{{ zotero_application_ini['content'] | b64decode | regex_search('Version\\s*=\\s*(.*)','\\1') | first }}"
+              when: zotero_application_ini_file.stat.exists
+
+        - name: Check the latest Zotero version available on vendor's website
+          run_once: yes
+          delegate_to: localhost
+          block:
+            - name: Read Zotero download page content
+              ansible.builtin.uri:
+                url: https://www.zotero.org/download
+                return_content: yes
+              register: zotero_download_page
+
+            - name: Set latest Zotero version
+              ansible.builtin.set_fact:
+                zotero_latest_version: "{{ zotero_web_components_downloads.standaloneVersions['linux-x86_64'] }}"
+              vars:
+                zotero_web_components_downloads: "{{ zotero_download_page.content | regex_search('ZoteroWebComponents\\.Downloads,\\s+(.*)\\)','\\1') | first }}"
+
+        - name: Perform upgrade of Zotero
+          when: zotero_latest_version is version(zotero_version, '>')
+          block:
+            - name: Ensures that /opt/zotero directory exists
+              ansible.builtin.file:
+                path: /opt/zotero
+                state: directory
+
+            - name: Ensures that /opt/zotero is empty
+              ansible.builtin.file:
+                path: "/opt/zotero/*"
+                state: absent
+
+            - name: Download latest Zotero
+              ansible.builtin.unarchive:
+                src: "https://www.zotero.org/download/client/dl/?channel=release&platform=linux-x86_64&version={{ zotero_latest_version }}"
+                dest: /opt/zotero
+                remote_src: yes
+                extra_opts: [--strip-components=1]
+              register: zotero_download
+
+            - name: Set icon path in Zotero launcher
+              ansible.builtin.shell: ./set_launcher_icon
+              args:
+                chdir: /opt/zotero
+
+            - name: Set executable path in Zotero launcher
+              ansible.builtin.lineinfile:
+                path: /opt/zotero/zotero.desktop
+                regexp: '(Exec=bash -c ").*(/zotero.*)'
+                line: '\1/opt/zotero\2'
+                backrefs: yes
+
+            - name: Copy Zotero launcher to /usr/local/share/applications
+              ansible.builtin.copy:
+                src: /opt/zotero/zotero.desktop
+                dest: /usr/local/share/applications/
+                mode: -x
+                remote_src: yes
+
+- hosts: all
+  become: yes
+  gather_facts: no
+  tags: check-reboot
+  tasks:
+    - name: Check if reboot is required on RHEL/Fedora hosts
+      ansible.builtin.shell: needs-restarting -r
+      changed_when: needs_restarting.rc == 1
+      failed_when: needs_restarting.rc > 2
+      when: ansible_distribution == 'RedHat' or ansible_distribution == 'Fedora'
+      register: needs_restarting
+
+    - name: Check if reboot is required on Debian/Ubuntu hosts
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      changed_when: reboot_required_file.stat.exists
+      when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+      register: reboot_required_file

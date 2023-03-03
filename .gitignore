@@ -1,0 +1,4 @@
+__pycache__/
+
+# ansible vault password
+.vault_pass
