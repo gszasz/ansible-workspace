@@ -68,9 +68,12 @@
                 dest: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
                 remote_src: yes
 
-        - name: Fix installed Skype if Discord was upgraded
-          ansible.builtin.shell: rpm -Uvh --force $(dnf repoquery -q --latest 1 --location skypeforlinux)
-          when: upgraded_packages | select('match', 'discord') | list | count > 0
+    - name: Upgrade Skype
+      tags: skype
+      block:
+        - name: Upgrade Skype from the vendor's RPM
+          ansible.builtin.dnf:
+            name: https://go.skype.com/skypeforlinux-64.rpm
 
     - name: Upgrade Zoom
       tags: zoom
@@ -84,57 +87,92 @@
           ansible.builtin.dnf:
             name: https://zoom.us/client/latest/zoom_x86_64.rpm
 
-    # - name: Upgrade Bitwarden
-    #   tags: bitwarden
-    #   block:
-    #     - name: Check version of the installed Bitwarden
-    #       block:
-    #         - name: List installed Bitwarden package
-    #           ansible.builtin.dnf:
-    #             list: bitwarden
-    #           register: list_bitwarden_package
+    - name: Upgrade Bitwarden
+      tags: bitwarden
+      block:
+        - name: Check version of the installed Bitwarden
+          block:
+            - name: List installed Bitwarden package
+              ansible.builtin.dnf:
+                list: bitwarden
+              register: list_bitwarden_package
 
-    #         - name: Set version of the installed Bitwarden package
-    #           ansible.builtin.set_fact:
-    #             bitwarden_version: "{{ list_bitwarden_package.results[0].version if list_bitwarden_package.results else '1970.1.1' }}"
+            - name: Set version of the installed Bitwarden package
+              ansible.builtin.set_fact:
+                bitwarden_version: "{{ list_bitwarden_package.results[0].version if list_bitwarden_package.results else '1970.0.0' }}"
 
-    #     - name: Check the latest Bitwarden version available on GitHub
-    #       run_once: yes
-    #       delegate_to: localhost
-    #       block:
-    #         - name: Get list of Bitwarden releases from GitHub
-    #           ansible.builtin.uri:
-    #             url: "https://api.github.com/repos/bitwarden/clients/releases"
-    #             body_format: json
-    #           register: bitwarden_releases
+        - name: Check the latest Bitwarden version available on GitHub
+          run_once: yes
+          delegate_to: localhost
+          block:
+            - name: Get list of Bitwarden releases from GitHub
+              ansible.builtin.uri:
+                url: "https://api.github.com/repos/bitwarden/clients/releases"
+                body_format: json
+              register: bitwarden_releases
 
-    #         - name: Set latest Bitwarden version
-    #           ansible.builtin.set_fact:
-    #             bitwarden_latest_version: "{{ bitwarden_releases.json | json_query(desktop_release_query) | community.general.version_sort | last | regex_replace('^desktop-v?(.*)$', '\\1')  }}"
-    #           vars:
-    #             desktop_release_query: "[?contains(tag_name,'desktop') && prerelease==`false` && draft==`false`].tag_name"
+            - name: Set latest Bitwarden version
+              ansible.builtin.set_fact:
+                bitwarden_latest_version: "{{ bitwarden_releases.json | json_query(desktop_release_query) | community.general.version_sort | last | regex_replace('^desktop-v?(.*)$', '\\1')  }}"
+              vars:
+                desktop_release_query: "[?contains(tag_name,'desktop') && prerelease==`false` && draft==`false`].tag_name"
 
-    #     - name: Perform upgrade of Bitwarden
-    #       when: bitwarden_latest_version is version(bitwarden_version, '>')
-    #       block:
-    #         - name: Download latest Bitwarden RPM
-    #           ansible.builtin.get_url:
-    #             url: "https://vault.bitwarden.com/download/?app=desktop&platform=linux&variant=rpm"
-    #             dest: /tmp/
-    #           register: bitwarden_download
+        - name: Perform upgrade of Bitwarden
+          when: bitwarden_latest_version is version(bitwarden_version, '>')
+          block:
+            - name: Download latest Bitwarden RPM
+              ansible.builtin.get_url:
+                url: "https://vault.bitwarden.com/download/?app=desktop&platform=linux&variant=rpm"
+                dest: /tmp/
+              register: bitwarden_download
 
-    #         - name: Install Bitwarden from the downloaded RPM
-    #           ansible.builtin.dnf:
-    #             name: "{{ bitwarden_download['dest'] }}"
-    #             disable_gpg_check: yes
-    #           when: bitwarden_download.changed
-    #           register: bitwarden_install
+            - name: Install Bitwarden from the downloaded RPM
+              ansible.builtin.dnf:
+                name: "{{ bitwarden_download['dest'] }}"
+                disable_gpg_check: yes
+              when: bitwarden_download.changed
+              register: bitwarden_install
 
-    #         - name: Purge downloaded RPM
-    #           ansible.builtin.file:
-    #             path: "{{ bitwarden_download['dest'] }}"
-    #             state: absent
-    #           when: bitwarden_download.changed
+            - name: Purge downloaded RPM
+              ansible.builtin.file:
+                path: "{{ bitwarden_download['dest'] }}"
+                state: absent
+              when: bitwarden_download.changed
+
+    - name: Upgrade Slack
+      tags: slack
+      block:
+        - name: Check version of the installed Slack
+          block:
+            - name: List installed Slack package
+              ansible.builtin.dnf:
+                list: slack
+              register: list_slack_package
+
+            - name: Set version of the installed Slack package
+              ansible.builtin.set_fact:
+                slack_version: "{{ list_slack_package.results[0].version if list_slack_package.results else '0.0.0' }}"
+
+        - name: Check the latest Slack version available to download
+          run_once: yes
+          delegate_to: localhost
+          block:
+            - name: Set Slack download URL
+              ansible.builtin.set_fact:
+                slack_download_url: "{{ lookup('url', 'https://slack.com/downloads/instructions/fedora') | regex_search('https://downloads.slack-edge.com/releases/[^\"]+') }}"
+
+            - name: Set Slack latest version
+              ansible.builtin.set_fact:
+                slack_latest_version: "{{ slack_download_url | regex_search('/slack-(.+)-', '\\1') | first }}"
+
+        - name: Perform upgrade of Slack
+          when: slack_latest_version is version(slack_version, '>')
+          block:
+            - name: Install Slack from the URL
+              ansible.builtin.dnf:
+                name: "{{ slack_download_url }}"
+                disable_gpg_check: yes
+              register: slack_install
 
     - name: Upgrade UHK Agent
       tags: uhk-agent
@@ -207,7 +245,6 @@
                 executable: /bin/bash
                 chdir: "{{ uhk_agent_download.dest | dirname }}"
               when: uhk_agent_download.changed
-
 
             - name: Set executable path in the extracted UHK Agent launcher
               ansible.builtin.lineinfile:
