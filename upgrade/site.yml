@@ -68,13 +68,6 @@
                 dest: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
                 remote_src: yes
 
-    - name: Upgrade Skype
-      tags: skype
-      block:
-        - name: Upgrade Skype from the vendor's RPM
-          ansible.builtin.dnf:
-            name: https://go.skype.com/skypeforlinux-64.rpm
-
     - name: Upgrade Zoom
       tags: zoom
       block:
