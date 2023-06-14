@@ -431,6 +431,44 @@
                 mode: -x
                 remote_src: yes
 
+    - name: Upgrade JupyterLab
+      tags: jupyterlab
+      block:
+        - name: Check version of the installed JupyterLab
+          block:
+            - name: List installed JupyterLab package
+              ansible.builtin.dnf:
+                list: jupyterlab-desktop
+              register: list_jupyterlab_package
+
+            - name: Set version of the installed JupyterLab package
+              ansible.builtin.set_fact:
+                jupyterlab_version: "{{ list_jupyterlab_package.results[0].version if list_jupyterlab_package.results else '0.0.0_0' }}"
+
+        - name: Check the latest JupyterLab version available on GitHub
+          run_once: yes
+          delegate_to: localhost
+          block:
+            - name: Get latest JupyterLab release tag
+              community.general.github_release:
+                user: jupyterlab
+                repo: jupyterlab-desktop
+                action: latest_release
+              register: jupyterlab_latest
+
+            - name: Set latest JupyterLab version
+              ansible.builtin.set_fact:
+                jupyterlab_latest_version: "{{ jupyterlab_latest['tag'] | regex_replace('^v(.*)-(.*)', '\\1_\\2') }}"
+
+        - name: Perform upgrade of JupyterLab
+          when: jupyterlab_latest_version is version(jupyterlab_version, '>')
+          block:
+            - name: Install JupyterLab from the URL
+              # Current JupyterLab Desktop RPM has conflict with other Electron
+              # apps.  I have to workaround it by calling rpm command directly.
+              ansible.builtin.shell: |
+                sudo rpm -iU --force https://github.com/jupyterlab/jupyterlab-desktop/releases/download/{{ jupyterlab_latest['tag'] }}/JupyterLab-Setup-Fedora.rpm
+
 - hosts: all
   become: yes
   gather_facts: no
