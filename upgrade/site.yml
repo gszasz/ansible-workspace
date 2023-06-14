@@ -116,7 +116,6 @@
                 name: "{{ bitwarden_download['dest'] }}"
                 disable_gpg_check: yes
               when: bitwarden_download.changed
-              register: bitwarden_install
 
             - name: Purge downloaded RPM
               ansible.builtin.file:
