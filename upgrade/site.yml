@@ -162,9 +162,10 @@
           when: slack_latest_version is version(slack_version, '>')
           block:
             - name: Install Slack from the URL
-              ansible.builtin.dnf:
-                name: "{{ slack_download_url }}"
-                disable_gpg_check: yes
+              # Current Slack RPM has conflict with other Electron apps.  I
+              # have to workaround it by calling rpm command directly.
+              ansible.builtin.shell: |
+                sudo rpm -iU --force {{ slack_download_url }}
               register: slack_install
 
     - name: Upgrade UHK Agent
