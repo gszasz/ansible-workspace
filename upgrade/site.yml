@@ -187,7 +187,7 @@
 
             - name: Set latest UHK Agent version
               ansible.builtin.set_fact:
-                uhk_agent_latest_version: "{{ uhk_agent_latest['tag'] | regex_replace('^v','') }}"
+                uhk_agent_latest_version: "{{ uhk_agent_latest['tag'] | regex_replace('^v', '') }}"
 
         - name: Perform upgrade of UHK Agent
           when: uhk_agent_latest_version is version(uhk_agent_version, '>')
@@ -204,7 +204,7 @@
 
             - name: Download UHK Agent AppImage
               ansible.builtin.get_url:
-                url: "https://github.com/UltimateHackingKeyboard/agent/releases/download/{{ uhk_agent_latest['tag'] }}/UHK.Agent-{{ uhk_agent_latest['tag'] | regex_replace('^v','') }}-linux-x86_64.AppImage"
+                url: "https://github.com/UltimateHackingKeyboard/agent/releases/download/{{ uhk_agent_latest['tag'] }}/UHK.Agent-{{ uhk_agent_latest['tag'] | regex_replace('^v', '') }}-linux-x86_64.AppImage"
                 dest: /opt/uhk-agent
               register: uhk_agent_download
 
@@ -365,7 +365,7 @@
 
             - name: Set Zotero version
               ansible.builtin.set_fact:
-                zotero_version: "{{ zotero_application_ini['content'] | b64decode | regex_search('Version\\s*=\\s*(.*)','\\1') | first }}"
+                zotero_version: "{{ zotero_application_ini['content'] | b64decode | regex_search('Version\\s*=\\s*(.*)', '\\1') | first }}"
               when: zotero_application_ini_file.stat.exists
 
         - name: Check the latest Zotero version available on vendor's website
@@ -382,7 +382,7 @@
               ansible.builtin.set_fact:
                 zotero_latest_version: "{{ zotero_web_components_downloads.standaloneVersions['linux-x86_64'] }}"
               vars:
-                zotero_web_components_downloads: "{{ zotero_download_page.content | regex_search('ZoteroWebComponents\\.Downloads,\\s+(.*)\\)','\\1') | first }}"
+                zotero_web_components_downloads: "{{ zotero_download_page.content | regex_search('ZoteroWebComponents\\.Downloads,\\s+(.*)\\)', '\\1') | first }}"
 
         - name: Perform upgrade of Zotero
           when: zotero_latest_version is version(zotero_version, '>')
