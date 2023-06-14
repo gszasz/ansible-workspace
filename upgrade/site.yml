@@ -39,17 +39,9 @@
             state: latest
           register: dnf_upgrade
 
-        - name: DEBUG dnf_upgrade
-          ansible.builtin.debug:
-            var: dnf_upgrade
-
         - name: Set list of upgraded packages
           ansible.builtin.set_fact:
-            upgraded_packages: "{{ dnf_upgrade.results | select('match', '^Installed:') | map('regex_replace','^Installed: (.+)$','\\1') | list }}"
-
-        - name: DEBUG upgraded_packages
-          ansible.builtin.debug:
-            var: upgraded_packages
+            upgraded_packages: "{{ dnf_upgrade.results | select('match', '^Installed:') | map('regex_replace', '^Installed: (.+)$', '\\1') | list }}"
 
         - name: Update user's copy of emacsclient launcher if emacs-common package was upgraded
           when: upgraded_packages | select('match', 'emacs-common') | list | count > 0
