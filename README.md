@@ -6,10 +6,18 @@
 git clone https://github.com/gszasz/ansible-workspace
 ```
 
-### Fedora 37 Dependencies
+### Fedora 38 Dependencies
 
 ```bash
 $ sudo dnf install -y ansible-core ansible-collection-community-general
+```
+
+### Ubuntu 22.04 Dependencies
+
+```bash
+$ sudo apt-add-repository ppa:ansible/ansible
+$ sudo apt update
+$ sudo apt install ansible
 ```
 
 ## Playbooks
