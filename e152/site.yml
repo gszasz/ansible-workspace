@@ -1,6 +1,6 @@
 # Playbook for the ESO 1.52 telescope UNIX controller setup
 #
-# Copyright (C) 2022  Gabriel Szász <gabriel.szasz1@gmail.com>
+# Copyright (C) 2022, 2023  Gabriel Szász <gabriel.szasz1@gmail.com>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -126,50 +126,6 @@
             - name: The first step of the fix
               debug:
                 msg: "Here comes the implementation of the  patch fixing the problem"
-
-
-    - name: Install AnyDesk
-      tags: anydesk
-      become: yes
-      vars:
-        anydesk_gpg: /etc/apt/trusted.gpg.d/anydesk.gpg
-      block:
-        - name: Download AnyDesk Signing Key
-          get_url:
-            url:  https://keys.anydesk.com/repos/DEB-GPG-KEY
-            dest: /tmp/
-          register: anydesk_signing_key_download
-
-        - name: "Dearmor downloaded AnyDesk Signing Key into {{ anydesk_gpg }}"
-          shell: "gpg --dearmor -o {{ anydesk_gpg }} < {{ anydesk_signing_key_download.dest }}"
-          args:
-            creates: "{{ anydesk_gpg }}"
-
-        - name: Purge downloaded AnyDesk Key
-          file:
-            path: "{{ anydesk_signing_key_download.dest }}"
-            state: absent
-
-        - name: Add AnyDesk repository
-          apt_repository:
-            filename: anydesk-stable
-            repo:  "deb http://deb.anydesk.com/ all main"
-            state: present
-
-        - name: Install AnyDesk
-          apt:
-            name: anydesk
-            update_cache: yes
-            state: latest
-
-        - name: Ensure AnyDesk Service is enabled and running
-          service:
-             name: anydesk
-             enabled: yes
-             state: running
-
-        - name: Set password for unattended access
-          shell: "echo \"{{ anydesk_password }}\" | sudo anydesk --set-password"
 
     - name: "Ensure directory {{ user_src_dir }} exists"
       file:
@@ -402,3 +358,93 @@
           args:
             chdir: "{{ pyindi_client_src_dir }}"
           register: pyindi_client_install
+
+    - name: Setup KVM virtualization
+      become: yes
+      tags: kvm
+      block:
+        - name: Check if host is KVM-ready
+          block:
+            - name: Check if virtualization is enabled in CPU
+              shell: egrep -c '(vmx|svm)' /proc/cpuinfo
+              register: cpuinfo_virtualization
+
+            - name: Check if latest cpu-checker is installed
+              apt:
+                name: cpu-checker
+                state: latest
+
+            - name: Check if KVM virtualization is enabled
+              shell: kvm-ok
+              register: kvm_ok
+
+            - name: Set virt_ok variable
+              set_fact:
+                virt_ok: True
+              when: cpuinfo_virtualization.stdout | int > 0 and  "KVM acceleration can be used" in kvm_ok.stdout
+
+        - name: Setup KVM
+          when: virt_ok
+          block:
+            - name: Install KVM packages
+              apt:
+                pkg:
+                  - qemu-kvm
+                  - virt-manager
+                  - libvirt-daemon-system
+                  - virtinst
+                  - libvirt-clients
+                  - bridge-utils
+                state: latest
+
+            - name: Enable and start libvirtd service
+              systemd:
+                name: libvirtd
+                enabled: true
+                state: started
+
+            - name: Reassure that kvm group exists
+              group:
+                name: kvm
+                state: present
+
+            - name: Reassure that libvirtd group exists
+              group:
+                name: libvirtd
+                state: present
+
+            - name: "Add {{ ansible_user }} to the kvm and libvirtd groups"
+              user:
+                name: "{{ ansible_user }}"
+                groups: kvm, libvirtd
+                append: yes
+
+            - name: Create netplan configuration file
+              copy:
+                dest: "/etc/netplan/01-netcfg.yaml"
+                content: |
+                  network:
+                    ethernets:
+                      {{ ansible_default_ipv4.interface }}:
+                        dhcp4: false
+                        dhcp6: false
+                    # add configuration for bridge interface
+                    bridges:
+                      br0:
+                        interfaces: [{{ ansible_default_ipv4.interface }}]
+                        dhcp4: false
+                        addresses: [192.168.1.162/24]
+                        macaddress: 08:00:27:4b:1d:45
+                        routes:
+                          - to: default
+                            via: 192.168.1.1
+                            metric: 100
+                        nameservers:
+                          addresses: [4.2.2.2]
+                        parameters:
+                          stp: false
+                        dhcp6: false
+                    version: 2
+
+            - name: Apply netplan
+              shell: netplan apply
