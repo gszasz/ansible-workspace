@@ -112,9 +112,10 @@
               register: bitwarden_download
 
             - name: Install Bitwarden from the downloaded RPM
-              ansible.builtin.dnf:
-                name: "{{ bitwarden_download['dest'] }}"
-                disable_gpg_check: yes
+              # Current Bitwarden Desktop RPM has conflict with other Electron
+              # apps.  I have to workaround it by calling rpm command directly.
+              ansible.builtin.shell: |
+                sudo rpm -iU --force {{ bitwarden_download['dest'] }}
               when: bitwarden_download.changed
 
             - name: Purge downloaded RPM
