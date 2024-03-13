@@ -60,6 +60,17 @@
                 dest: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
                 remote_src: yes
 
+            - name: Add custom MIME types to emacsclient launcher
+              ansible.builtin.lineinfile:
+                path: "/home/gszasz/.local/share/applications/emacsclient.desktop"
+                regex: 'MimeType=((?!.*?{{ item }}).*?)$'
+                line: 'MimeType=\1{{ item }};'
+                backrefs: yes
+              loop:
+                - application/x-chess-pgn
+                - application/x-hledger
+                - application/x-org
+
     - name: Upgrade Zoom
       tags: zoom
       block:
