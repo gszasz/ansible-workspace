@@ -1,6 +1,6 @@
 # Playbook performing upgrade of all installed packages
 #
-# Copyright (C) 2022, 2023  Gabriel Szász <gabriel.szasz1@gmail.com>
+# Copyright (C) 2022-2024  Gabriel Szász <gabriel.szasz1@gmail.com>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # This program is free software: you can redistribute it and/or modify it under
