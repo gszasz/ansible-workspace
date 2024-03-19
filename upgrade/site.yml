@@ -43,10 +43,10 @@
           ansible.builtin.set_fact:
             upgraded_packages: "{{ dnf_upgrade.results | select('match', '^Installed:') | map('regex_replace', '^Installed: (.+)$', '\\1') | list }}"
 
-        - name: Update user's copy of emacsclient launcher if emacs-common package was upgraded
+        - name: Update user's copy of EmacsClient launcher if emacs-common package was upgraded
           when: upgraded_packages | select('match', 'emacs-common') | list | count > 0
           block:
-            - name: Find emacsclient launcher
+            - name: Find EmacsClient launcher
               ansible.builtin.find:
                 paths: /usr/share/emacs/
                 file_type: file
@@ -54,13 +54,13 @@
                 patterns: 'emacsclient.desktop'
               register: find_emacsclient_launcher
 
-            - name: Copy emacsclient launcher to user's home directory
+            - name: Copy EmacsClient launcher to user's home directory
               ansible.builtin.copy:
                 src: "{{ find_emacsclient_launcher.files[0].path }}"
                 dest: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
                 remote_src: yes
 
-            - name: Add custom MIME types to emacsclient launcher
+            - name: Add custom MIME types to EmacsClient launcher
               ansible.builtin.lineinfile:
                 path: "/home/gszasz/.local/share/applications/emacsclient.desktop"
                 regex: 'MimeType=((?!.*?{{ item }}).*?)$'
@@ -70,6 +70,12 @@
                 - application/x-chess-pgn
                 - application/x-hledger
                 - application/x-org
+              register: add_custom_mime_types
+
+            - name: Update desktop database
+              when: add_custom_mime_types.changed
+              ansible.builtin.shell: |
+                "update-desktop-database /home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
 
     - name: Upgrade Zoom
       tags: zoom
