@@ -76,7 +76,7 @@
             - name: Update desktop database
               when: add_custom_mime_types.changed
               ansible.builtin.shell: |
-                "update-desktop-database /home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
+                update-desktop-database /home/{{ ansible_env.SUDO_USER }}/.local/share/applications/
 
     - name: Upgrade Zoom
       tags: zoom
