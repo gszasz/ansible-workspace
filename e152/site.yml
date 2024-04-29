@@ -1,6 +1,7 @@
 # Playbook for the ESO 1.52 telescope UNIX controller setup
 #
-# Copyright (C) 2022, 2023  Gabriel Szász <gabriel.szasz1@gmail.com>
+# Copyright (C) 2022-2023 Gabriel Szász
+#
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # This program is free software: you can redistribute it and/or modify it under
