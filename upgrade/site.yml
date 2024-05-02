@@ -73,8 +73,15 @@
                 - application/x-org
               register: add_custom_mime_types
 
+            - name: Fix exec command in EmacsClient launcher
+              ansible.builtin.lineinfile:
+                path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
+                regex: 'Exec=.*'
+                line: 'Exec=emacsclient --alternate-editor= --reuse-frame %F'
+              register: fix_exec_command
+
             - name: Update desktop database
-              when: add_custom_mime_types.changed
+              when: add_custom_mime_types.changed or fix_exec_command.changed
               ansible.builtin.shell: |
                 update-desktop-database /home/{{ ansible_env.SUDO_USER }}/.local/share/applications/
 
