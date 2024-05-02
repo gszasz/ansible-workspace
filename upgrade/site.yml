@@ -63,7 +63,7 @@
 
             - name: Add custom MIME types to EmacsClient launcher
               ansible.builtin.lineinfile:
-                path: "/home/gszasz/.local/share/applications/emacsclient.desktop"
+                path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
                 regex: 'MimeType=((?!.*?{{ item }}).*?)$'
                 line: 'MimeType=\1{{ item }};'
                 backrefs: yes
