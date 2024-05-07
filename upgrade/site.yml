@@ -169,7 +169,7 @@
           block:
             - name: Set Slack download URL
               ansible.builtin.set_fact:
-                slack_download_url: "{{ lookup('url', 'https://slack.com/downloads/instructions/fedora') | regex_search('https://downloads.slack-edge.com/desktop-releases/[^\"]+') }}"
+                slack_download_url: "{{ lookup('url', 'https://slack.com/downloads/instructions/linux?build=rpm') | regex_search('https://downloads.slack-edge.com/desktop-releases/[^\"]+') }}"
 
             - name: Set Slack latest version
               ansible.builtin.set_fact:
