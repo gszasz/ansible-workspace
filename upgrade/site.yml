@@ -61,7 +61,7 @@
                 dest: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/"
                 remote_src: yes
 
-            - name: Add custom MIME types to EmacsClient launcher
+            - name: Add custom MIME types to the EmacsClient launcher Desktop Entry
               ansible.builtin.lineinfile:
                 path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
                 regex: 'MimeType=((?!.*?{{ item }}).*?)$'
@@ -73,15 +73,22 @@
                 - application/x-org
               register: add_custom_mime_types
 
-            - name: Fix exec command in EmacsClient launcher
+            - name: Fix Exec command in EmacsClient launcher
               ansible.builtin.lineinfile:
                 path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
-                regex: 'Exec=.*'
-                line: 'Exec=emacsclient --alternate-editor= --reuse-frame %F'
+                regex: 'Exec="sh -c.*'
+                line: 'Exec=emacsclient --alternate-editor= --no-wait --reuse-frame %F'
               register: fix_exec_command
 
+            - name: Fix new-window Exec command in EmacsClient launcher
+              ansible.builtin.lineinfile:
+                path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
+                regex: 'Exec=.*--create-frame %F$'
+                line: 'Exec=emacsclient --alternate-editor= --no-wait --reuse-frame %F'
+              register: fix_new_window_exec_command
+
             - name: Update desktop database
-              when: add_custom_mime_types.changed or fix_exec_command.changed
+              when: add_custom_mime_types.changed or fix_exec_command.changed or fix_new_window_exec_command.changed
               ansible.builtin.shell: |
                 update-desktop-database /home/{{ ansible_env.SUDO_USER }}/.local/share/applications/
 
