@@ -348,6 +348,19 @@
                 - kubectl
               when: oc_download.changed
 
+            - name: Generate OpenShift Client bash completion
+              ansible.builtin.shell: |
+                oc completion bash > /tmp/oc_bash_completion
+              tags: test
+              when: oc_download.changed
+
+            - name: Copy Openshift Client bash completion file to /etc/bashcompletion.d
+              ansible.builtin.copy:
+                src: "/tmp/oc_bash_completion"
+                dest: "/etc/bash_completion.d/"
+                remote_src: yes
+              when: oc_download.changed
+
     - name: Upgrade MeshCommander
       tags: meshcommander
       block:
