@@ -76,14 +76,14 @@
             - name: Fix Exec command in EmacsClient launcher
               ansible.builtin.lineinfile:
                 path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
-                regex: 'Exec="sh -c.*'
+                regex: 'Exec=sh -c .*'
                 line: 'Exec=emacsclient --alternate-editor= --no-wait --reuse-frame %F'
               register: fix_exec_command
 
             - name: Fix new-window Exec command in EmacsClient launcher
               ansible.builtin.lineinfile:
                 path: "/home/{{ ansible_env.SUDO_USER }}/.local/share/applications/emacsclient.desktop"
-                regex: 'Exec=.*--create-frame %F$'
+                regex: 'Exec=.*--create-frame.*%F$'
                 line: 'Exec=emacsclient --alternate-editor= --no-wait --reuse-frame %F'
               register: fix_new_window_exec_command
 
