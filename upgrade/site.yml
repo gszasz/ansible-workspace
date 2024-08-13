@@ -224,15 +224,15 @@
         - name: Perform upgrade of UHK Agent
           when: uhk_agent_latest_version is version(uhk_agent_version, '>')
           block:
-            - name: Ensures that /opt/uhk-agent directory exists
+            - name: Delete existing /opt/uhk-agent directory
+              ansible.builtin.file:
+                path: /opt/uhk-agent/
+                state: absent
+
+            - name: Create empty /opt/uhk-agent directory
               ansible.builtin.file:
                 path: /opt/uhk-agent
                 state: directory
-
-            - name: Ensures that /opt/uhk-agent is empty
-              ansible.builtin.file:
-                path: "/opt/uhk-agent/*"
-                state: absent
 
             - name: Download UHK Agent AppImage
               ansible.builtin.get_url:
@@ -321,15 +321,15 @@
         - name: Perform upgrade of OpenShift Client
           when: oc_latest_version is version(oc_version, '>')
           block:
-            - name: Ensures that /opt/oc directory exists
-              ansible.builtin.file:
-                path: /opt/oc
-                state: directory
-
-            - name: Ensures that /opt/oc is empty
+            - name: Delete existing /opt/oc directory
               ansible.builtin.file:
                 path: "/opt/oc/*"
                 state: absent
+
+            - name: Create empty /opt/oc directory
+              ansible.builtin.file:
+                path: /opt/oc
+                state: directory
 
             - name: Download latest OpenShift Client
               ansible.builtin.unarchive:
@@ -364,7 +364,7 @@
     - name: Upgrade MeshCommander
       tags: meshcommander
       block:
-        - name: Ensures that /opt/meshcommander directory exists
+        - name: Ensure that /opt/meshcommander directory exists
           ansible.builtin.file:
             path: /opt/meshcommander
             state: directory
