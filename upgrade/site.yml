@@ -399,12 +399,12 @@
 
             - name: Check if Zotero's application.ini file exists
               ansible.builtin.stat:
-                path: /opt/zotero/application.ini
+                path: /opt/zotero/app/application.ini
               register: zotero_application_ini_file
 
             - name: Read Zotero's application.ini file contents
               ansible.builtin.slurp:
-                src: /opt/zotero/application.ini
+                src: /opt/zotero/app/application.ini
               when: zotero_application_ini_file.stat.exists
               register: zotero_application_ini
 
@@ -427,20 +427,30 @@
               ansible.builtin.set_fact:
                 zotero_latest_version: "{{ zotero_web_components_downloads.standaloneVersions['linux-x86_64'] }}"
               vars:
-                zotero_web_components_downloads: "{{ zotero_download_page.content | regex_search('ZoteroWebComponents\\.Downloads,\\s+(.*)\\)', '\\1') | first }}"
+                zotero_web_components_downloads: "{{ zotero_download_page.content | regex_search('ZoteroWebComponents\\.Downloads,\\s+(.*?)\\)', '\\1') | first }}"
+
+            - name: Print latest Zotero version
+              debug:
+                msg:
+                  - "zotero_latest_version: {{ zotero_latest_version }}"
+                  - "zotero_version: {{ zotero_version }}"
+              vars:
+                zotero_versions:
+                  - zotero_version
+                  - zotero_latest_version
 
         - name: Perform upgrade of Zotero
           when: zotero_latest_version is version(zotero_version, '>')
           block:
-            - name: Ensures that /opt/zotero directory exists
+            - name: Delete existing /opt/zotero directory
+              ansible.builtin.file:
+                path: /opt/zotero/
+                state: absent
+
+            - name: Create empty /opt/zotero directory
               ansible.builtin.file:
                 path: /opt/zotero
                 state: directory
-
-            - name: Ensures that /opt/zotero is empty
-              ansible.builtin.file:
-                path: "/opt/zotero/*"
-                state: absent
 
             - name: Download latest Zotero
               ansible.builtin.unarchive:
