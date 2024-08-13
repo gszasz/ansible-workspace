@@ -429,16 +429,6 @@
               vars:
                 zotero_web_components_downloads: "{{ zotero_download_page.content | regex_search('ZoteroWebComponents\\.Downloads,\\s+(.*?)\\)', '\\1') | first }}"
 
-            - name: Print latest Zotero version
-              debug:
-                msg:
-                  - "zotero_latest_version: {{ zotero_latest_version }}"
-                  - "zotero_version: {{ zotero_version }}"
-              vars:
-                zotero_versions:
-                  - zotero_version
-                  - zotero_latest_version
-
         - name: Perform upgrade of Zotero
           when: zotero_latest_version is version(zotero_version, '>')
           block:
